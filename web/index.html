@@ -195,7 +195,7 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   @page{margin:14mm 12mm}
 
   /* fora da folha: controles, progresso e a caixa do WhatsApp */
-  .top, .acoes-fim, #res-saida, #tela-form, #tela-run, .foot { display:none !important; }
+  .top, .acoes-fim, #res-saida, #tela-form, #tela-run, #tela-confirmar, .foot { display:none !important; }
 
   #cabecalho-impressao{display:block !important;margin:0 0 14px}
   #cabecalho-impressao h2{margin:0 0 2px;font-size:15pt;letter-spacing:-.01em}
@@ -249,11 +249,6 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   <!-- 1. PREENCHER -->
   <section class="step" id="tela-form">
     <div class="field">
-      <label class="lbl" for="lider">Nome da liderança</label>
-      <input type="text" id="lider" placeholder="Nome da liderança" autocomplete="off">
-    </div>
-
-    <div class="field">
       <label class="lbl">Fotos da lista</label>
       <p class="hint">Fotografe cada folha ou anexe o PDF escaneado. Quanto mais reta e iluminada a foto, melhor a leitura.</p>
       <button class="btn btn-ghost btn-anexar" id="b-arquivo" type="button">
@@ -295,6 +290,17 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
       <p class="now" id="agora">Preparando…</p>
     </div>
     <button class="btn btn-quiet" id="b-parar" type="button">Parar</button>
+  </section>
+
+  <!-- 2.5 CONFIRMAR LIDERANÇA -->
+  <section class="step" id="tela-confirmar" hidden>
+    <div class="field">
+      <label class="lbl" for="lider-confirmado">Nome da liderança</label>
+      <input type="text" id="lider-confirmado" autocomplete="off">
+      <p class="hint" id="lider-confirmado-hint"></p>
+    </div>
+    <button class="btn btn-primary" id="b-confirmar-lider" type="button">Confirmar e gravar</button>
+    <button class="btn btn-ghost" id="b-cancelar-lider" type="button">Cancelar</button>
   </section>
 
   <!-- 3. RESULTADO -->

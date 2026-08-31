@@ -41,8 +41,8 @@ function gerarTitulo(uf) {
 }
 
 let falhas = 0;
-function caso(rot, esperado, reg, lider) {
-  const r = fn.conferir(reg, lider === undefined ? "Erica" : lider);
+function caso(rot, esperado, reg) {
+  const r = fn.conferir(reg);
   const ok = r.status === esperado;
   if (!ok) falhas++;
   console.log(
@@ -67,7 +67,6 @@ caso("seção inexistente na zona",   "erro",       { nome:"ANA",   zona:"1",  s
 caso("zona de outro município",     "fora",       { nome:"PEDRO", zona:"12", secao:"50",   lideranca:"Erica" });
 caso("sem zona e seção",            "incompleto", { nome:"RITA",  zona:"",   secao:"",     lideranca:"Erica" });
 caso("nome não lido",               "incompleto", { nome:"",      zona:"1",  secao:"148",  lideranca:"Erica" });
-caso("liderança diferente da folha","fora",       { nome:"ANTONIA VIEIRA DA SILVA", zona:"001", secao:"100", lideranca:"Jvany" });
 
 console.log();
 console.log("--- título, agora opcional ---");

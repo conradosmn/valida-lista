@@ -155,7 +155,7 @@ function separarCampos(zon, sec, tel) {
   return achados.size === 1 ? [...achados.values()][0] : direto;
 }
 
-function conferir(reg, liderancaDigitada) {
+function conferir(reg) {
   const problemas = [];
   let status = "ok";
   const piora = (s) => { if (RANK[s] > RANK[status]) status = s; };
@@ -219,21 +219,10 @@ function conferir(reg, liderancaDigitada) {
     piora("fora");
   }
 
-  /* A liderança gravada é sempre a digitada. Mas se o quadro traz outro
-     nome escrito, avisa — é o sinal de que o lote misturou folhas. */
-  const lidFolha = (reg.lideranca || "").trim();
-  if (lidFolha && liderancaDigitada &&
-      normalizarNome(lidFolha) !== normalizarNome(liderancaDigitada)) {
-    problemas.push('A folha traz "' + lidFolha + '" como liderança, e não "' +
-                   liderancaDigitada + '".');
-    piora("fora");
-  }
-
   return {
     nome: nome || "(nome não identificado)",
     titulo: tit, zona: zon, secao: sec, telefone: tel,
     chave: chaveDe(nome, zon, sec),
-    liderancaFolha: lidFolha,
     status, problemas, local, localCor, localMsg,
     dup: null,
   };
@@ -508,8 +497,11 @@ async function registrar(res, lideranca) {
    ------------------------------------------------------------------- */
 const $ = (id) => document.getElementById(id);
 const elArquivos = $("lista-arquivos");
-const elLider = $("lider");
 const bAnalisar = $("b-analisar");
+
+// Nome confirmado da liderança da leitura atual — vem da tela de
+// confirmação (após ler as fichas), não é mais digitado antes.
+let LIDER = "";
 
 function desenharArquivos() {
   elArquivos.replaceChildren();
@@ -563,10 +555,9 @@ function adicionar(files) {
    arquivos. Dois botões duplicavam a opção de tirar foto. */
 $("b-arquivo").onclick = () => $("in-arquivo").click();
 $("in-arquivo").onchange = (e) => { adicionar(e.target.files); e.target.value = ""; };
-elLider.oninput = revisarForm;
 
 function revisarForm() {
-  bAnalisar.disabled = !(elLider.value.trim().length > 1 && ANEXOS.length > 0 && LOCAIS);
+  bAnalisar.disabled = !(ANEXOS.length > 0 && LOCAIS);
   bAnalisar.textContent = ANEXOS.length
     ? "Analisar " + ANEXOS.length + (ANEXOS.length === 1 ? " arquivo" : " arquivos")
     : "Analisar lista";
@@ -622,7 +613,7 @@ function progresso(f) {
 }
 
 function trocarTela(qual) {
-  for (const t of ["form", "run", "res"]) $("tela-" + t).hidden = (t !== qual);
+  for (const t of ["form", "run", "confirmar", "res"]) $("tela-" + t).hidden = (t !== qual);
   if (qual !== "res") document.title = "Confere Lista";
   window.scrollTo({ top: 0 });
 }
@@ -631,7 +622,7 @@ $("b-parar").onclick = () => { if (ABORT) ABORT.abort(); };
 
 async function analisar(opcoes) {
   const refazer = !!(opcoes && opcoes.refazer);
-  const lideranca = elLider.value.trim();
+  const lideranca = refazer ? LIDER : "";
   ABORT = new AbortController();
   trocarTela("run");
   progresso(0);
@@ -786,9 +777,61 @@ async function analisar(opcoes) {
   $("st-ocr").textContent = brutos.length + (brutos.length === 1 ? " linha" : " linhas");
   progresso(0.75);
 
+  if (refazer) {
+    await finalizarLeitura(lideranca, brutos, avisos);
+  } else {
+    mostrarConfirmacaoLideranca(brutos, avisos);
+  }
+}
+
+/* Nova lista: em vez de pedir o nome antes de ler (letra à mão raramente
+   bate igual com o que seria digitado), sugere o nome mais comum entre
+   as fichas lidas e deixa confirmar ou corrigir. */
+let PENDENTE = null;
+
+function mostrarConfirmacaoLideranca(brutos, avisos) {
+  const contagem = new Map();
+  for (const b of brutos) {
+    const raw = (b.lideranca || "").trim();
+    if (!raw) continue;
+    const chave = normalizarNome(raw);
+    const g = contagem.get(chave);
+    if (g) g.n++; else contagem.set(chave, { raw, n: 1 });
+  }
+  let sugestao = "", info = "Nenhuma ficha trouxe o nome da liderança legível. Digite abaixo.";
+  if (contagem.size) {
+    const g = [...contagem.values()].sort((a, b) => b.n - a.n)[0];
+    sugestao = g.raw;
+    info = g.n === brutos.length
+      ? "Todas as fichas trazem esse nome."
+      : g.n + " de " + brutos.length + " ficha" + (brutos.length === 1 ? "" : "s") + " trazem esse nome.";
+  }
+  PENDENTE = { brutos, avisos };
+  $("lider-confirmado").value = sugestao;
+  $("lider-confirmado-hint").textContent = info;
+  trocarTela("confirmar");
+  $("lider-confirmado").focus();
+}
+
+$("b-confirmar-lider").onclick = async () => {
+  const nome = $("lider-confirmado").value.trim();
+  if (!nome) { $("lider-confirmado").focus(); return; }
+  const pend = PENDENTE; PENDENTE = null;
+  trocarTela("run");
+  await finalizarLeitura(nome, pend.brutos, pend.avisos);
+};
+
+$("b-cancelar-lider").onclick = () => {
+  PENDENTE = null;
+  trocarTela("form");
+};
+
+async function finalizarLeitura(lideranca, brutos, avisos) {
+  LIDER = lideranca;
+
   /* conferência local */
   elAgora.textContent = "Conferindo na base de locais de votação…";
-  const res = brutos.map((b) => conferir(b, lideranca));
+  const res = brutos.map((b) => conferir(b));
   $("fl-conf").style.width = "100%";
   $("fase-conf").classList.add("done");
   $("st-conf").textContent = res.length + (res.length === 1 ? " conferida" : " conferidas");
@@ -1052,13 +1095,11 @@ $("b-refazer").onclick = () => {
 
 $("b-nova").onclick = () => {
   for (const a of ANEXOS) if (a.url) URL.revokeObjectURL(a.url);
-  ANEXOS = []; ULTIMO = null;
+  ANEXOS = []; ULTIMO = null; LIDER = "";
   desenharArquivos();
   aviso("aviso-form", "", "");
-  elLider.value = "";
   revisarForm();
   trocarTela("form");
-  elLider.focus();
 };
 
 function copiar(ta) {

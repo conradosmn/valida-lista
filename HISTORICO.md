@@ -58,10 +58,16 @@ papel a mesma seção aparece ora como `0304`, ora como `304`. Bug
 encontrado em teste: as duas formas geravam chaves diferentes e o
 duplicado escapava.
 
-**A liderança gravada é a digitada, não a lida da folha.** Escolha do
-usuário. Mas o site avisa quando o quadro traz nome diferente do
-digitado, porque um lote de fotos pode misturar folhas de lideranças
-diferentes — aconteceu no primeiro teste real.
+**A liderança é confirmada depois de ler, não digitada antes.** Primeira
+versão pedia o nome antes de anexar as fotos, e avisava (virando
+"verificar") sempre que o quadro trazia um nome diferente do digitado —
+pensado para pegar lote com fotos de lideranças misturadas. Na prática o
+fluxo real é sempre uma liderança por leitura, e letra à mão raramente
+bate igual com o que seria digitado ("Juliana" vs "Juliana R-S",
+"Ivany" lido como "Juany"): o aviso virou ruído, com a lista inteira
+caindo em "verificar" por causa de grafia. Trocado por: lê as fotos
+primeiro, sugere o nome mais comum entre os quadros lidos, e o
+coordenador confirma ou corrige numa tela antes de gravar.
 
 **Campos grudados são separados por força bruta validada.** A leitura às
 vezes junta zona + seção + telefone num campo só
@@ -105,7 +111,7 @@ Funciona de ponta a ponta, testado no celular com fichas reais.
 - Base: 1.930 seções, 5 zonas de Teresina, lida do Supabase.
 - Leitura: 3 folhas em paralelo em ~27 segundos.
 - Custo medido: R$ 0,025 por folha.
-- Testes: 24 casos, `node teste.js`.
+- Testes: 23 casos, `node teste.js`.
 
 Validação contra dado real: as 29 zonas/seções lidas das três folhas
 fotografadas existiam todas na base.
