@@ -1,0 +1,8 @@
+# A chave anon fica fora do Git. O repositório pode ficar público, e o
+# config.js real é gerado no deploy a partir dos secrets do repositório.
+web/config.js
+
+# Restos das versões anteriores (artifact) e temporários
+_check.js
+__pycache__/
+*.pyc
