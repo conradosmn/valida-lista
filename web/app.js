@@ -448,6 +448,21 @@ async function buscarDuplicados(chaves, liderancaAtual) {
   return mapa;
 }
 
+/* Apaga tudo o que uma liderança tem gravado. Serve ao botão de refazer,
+   quando a leitura anterior entrou errada e não há como corrigir linha a
+   linha pela tela. */
+async function apagarLista(lideranca) {
+  const r = await fetch(
+    SB.url + "/rest/v1/cadastros?lideranca=eq." + encodeURIComponent(lideranca),
+    { method: "DELETE", headers: sbHeaders({ "Prefer": "return=minimal" }) },
+  );
+  if (!r.ok) {
+    const bruto = await r.text();
+    console.error("exclusao", r.status, bruto);
+    throw new Error("o banco recusou a exclusão (código " + r.status + ").");
+  }
+}
+
 async function registrar(res, lideranca) {
   // Só grava quem tem nome e seção — sem isso a chave não identifica
   // ninguém, e gravaria lixo que atrapalha a conferência das próximas.
@@ -613,7 +628,8 @@ function trocarTela(qual) {
 
 $("b-parar").onclick = () => { if (ABORT) ABORT.abort(); };
 
-bAnalisar.onclick = async () => {
+async function analisar(opcoes) {
+  const refazer = !!(opcoes && opcoes.refazer);
   const lideranca = elLider.value.trim();
   ABORT = new AbortController();
   trocarTela("run");
@@ -622,6 +638,20 @@ bAnalisar.onclick = async () => {
     $("fl-" + f).style.width = "0%";
     $("fase-" + f).classList.remove("done");
     $("st-" + f).textContent = "aguardando";
+  }
+
+  /* Refazer: apaga o que esta lideranca já tem gravado, para a nova
+     leitura substituir em vez de conviver com o registro torto. */
+  if (refazer) {
+    elAgora.textContent = "Apagando os cadastros anteriores de " + lideranca + "…";
+    try {
+      await apagarLista(lideranca);
+    } catch (e) {
+      trocarTela("res");
+      aviso("res-topo", "bad",
+        "<b>Não consegui apagar os cadastros anteriores.</b><br>" + escapar(e.message));
+      return;
+    }
   }
 
   /* preparar páginas */
@@ -793,7 +823,9 @@ bAnalisar.onclick = async () => {
   await new Promise((r) => setTimeout(r, 300));
 
   mostrarResultado(res, avisos, lideranca);
-};
+}
+
+bAnalisar.onclick = () => analisar({});
 
 /* ---------------------------------------------------------------------
    RESULTADO
@@ -999,6 +1031,19 @@ $("b-exportar").onclick = () => {
 $("b-pdf").onclick = () => {
   if (!ULTIMO) return;
   window.print();
+};
+
+$("b-refazer").onclick = () => {
+  if (!ULTIMO) return;
+  const lider = ULTIMO.lideranca;
+  if (!ANEXOS.length) {
+    estado($("b-refazer"), "As fotos já foram limpas", "Refazer leitura");
+    return;
+  }
+  const pergunta = "Refazer a lista de " + lider + "? Os cadastros já gravados "
+    + "no nome dele serão apagados e as mesmas fotos serão lidas de novo. "
+    + "Isso consome uma nova leitura.";
+  if (window.confirm(pergunta)) analisar({ refazer: true });
 };
 
 $("b-nova").onclick = () => {

@@ -138,10 +138,12 @@ as policies de `anon` para `authenticated`.
 secret da função para impedir que outro site gaste o crédito do Gemini.
 Não protege o Supabase — CORS só vale para navegador.
 
-**4. Botão "Refazer a lista de fulano".** Apagar e regravar os cadastros
-de uma liderança. Hoje, se alguém entrou com seção errada, não há como
-corrigir pela tela: rodar de novo cria um segundo registro e o errado
-fica. As policies já permitem apagar.
+**4. ~~Botão "Refazer a lista de fulano"~~ — feito.** O botão "Refazer
+leitura", na tela de resultado, apaga os cadastros daquela liderança e lê
+as mesmas fotos de novo. Serve para quando a transcrição saiu errada e o
+registro entrou torto: em vez de criar um segundo, substitui. Exige que
+as fotos ainda estejam anexadas; depois de "Nova lista" elas são
+descartadas.
 
 ---
 
