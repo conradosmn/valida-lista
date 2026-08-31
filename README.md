@@ -30,7 +30,8 @@ supabase/
   schema.sql             tabelas e políticas de acesso
   functions/ocr/         a função que fala com o Gemini
 Piaui.csv                base original do TSE (os testes leem daqui)
-HISTORICO.md             decisões do projeto e o que ficou pendente
+HISTORICO.md             decisões do projeto e bugs corrigidos
+PROXIMOS-PASSOS.md       o que falta fazer, com os comandos prontos
 ```
 
 ## Rodando local
