@@ -207,10 +207,15 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
   .cards{gap:6px}
   .card{
+    /* Chrome ignora break-inside em contêiner flex/grid ao imprimir
+       (crbug.com/1027425) — vira bloco só na impressão, com margem no
+       lugar do gap, pra não quebrar entre páginas. */
+    display:block;
     break-inside:avoid; page-break-inside:avoid;
     box-shadow:none; padding:9px 11px;
     border:1px solid var(--line); border-left:3px solid var(--line-strong);
   }
+  .card > * + *{margin-top:9px}
   .card .nome{font-size:11.5pt}
   .dados{font-size:9pt}
   .local{font-size:10pt;padding-top:6px}
@@ -311,7 +316,6 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 
   <p class="foot">
     Base de locais de votação: <b id="foot-n">carregando…</b>.
-    A validade do título é conferida pelo cálculo dos dígitos verificadores do TSE.
   </p>
 
 </div>

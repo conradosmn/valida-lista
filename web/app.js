@@ -623,6 +623,7 @@ function progresso(f) {
 
 function trocarTela(qual) {
   for (const t of ["form", "run", "res"]) $("tela-" + t).hidden = (t !== qual);
+  if (qual !== "res") document.title = "Confere Lista";
   window.scrollTo({ top: 0 });
 }
 
@@ -866,6 +867,9 @@ function mostrarResultado(res, avisos, lideranca) {
   const nOk  = res.filter((r) => r.status === "ok").length;
   const nBad = res.filter((r) => r.status === "erro").length;
   const nWarn = res.length - nOk - nBad;
+
+  // Nome sugerido pelo navegador ao salvar como PDF (Ctrl+P > Salvar).
+  document.title = "Export_" + lideranca;
 
   /* Cabeçalho que só aparece no PDF — a folha impressa sai do contexto
      da tela, então precisa dizer de quem é a lista e de quando. */
