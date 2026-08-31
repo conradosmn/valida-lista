@@ -205,9 +205,10 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   .stat b{font-size:18pt}
   .grouphd{margin:10px 0 6px}
 
-  /* Chrome ignora break-inside em flex/grid ao imprimir (crbug.com/1027425)
-     — tanto no contêiner quanto no item dentro dele. Os dois viram bloco
-     só na impressão, com margem no lugar do gap. */
+  /* Motores de impressão (Chrome e Safari inclusos) não fragmentam bem
+     layout flex: break-inside:avoid é ignorado tanto no contêiner quanto
+     no item dentro dele. Os dois viram bloco só na impressão, com margem
+     no lugar do gap. */
   .cards{display:block}
   .card + .card{margin-top:6px}
   .card{
