@@ -793,6 +793,15 @@ async function analisar(opcoes) {
    um grupo por liderança, cada um confirmado e gravado separadamente. */
 let PENDENTE = null;
 
+// Habilita (ou desabilita de volta) o campo de nome de uma ficha solta
+// junto com o checkbox — o campo fica ao lado, mas só digitável quando
+// o usuário marca que vai conferir aquela ficha.
+function alternarFicha(chk, inp, li) {
+  li.classList.toggle("conferida", chk.checked);
+  inp.disabled = !chk.checked;
+  if (chk.checked) inp.focus();
+}
+
 function mostrarConfirmacaoLideranca(brutos, avisos, modoLote) {
   const nomeados = new Map(); // chave normalizada -> { raw, itens }
   const semNome = [];
@@ -805,7 +814,7 @@ function mostrarConfirmacaoLideranca(brutos, avisos, modoLote) {
   }
   const grupos = [...nomeados.values()].sort((a, b) => b.itens.length - a.itens.length);
 
-  let linhas, intro;
+  let intro;
   // Fora do modo lote, é sempre uma lista só — o OCR lê o nome da
   // liderança diferente de folha pra folha, e sem o switch isso empurrava
   // toda leitura pro modo lote (e pro ZIP) mesmo sendo uma pessoa só.
@@ -818,47 +827,160 @@ function mostrarConfirmacaoLideranca(brutos, avisos, modoLote) {
       ? "Nenhuma ficha trouxe o nome da liderança legível. Digite abaixo."
       : n === brutos.length ? "Todas as fichas trazem esse nome."
       : n + " de " + brutos.length + " ficha" + (brutos.length === 1 ? "" : "s") + " trazem esse nome.";
-    PENDENTE = { grupos: [{ raw, itens: brutos }], avisos, unico: true };
-    linhas = [{ raw, info }];
+    PENDENTE = { grupos: [{ raw, itens: brutos, info }], avisos, unico: true };
     intro = "";
   } else {
     // Leitura em lote: um grupo por liderança encontrada nas fotos.
     if (semNome.length) grupos.push({ raw: "", itens: semNome, semNomeLegivel: true });
+    for (const g of grupos) {
+      g.info = g.semNomeLegivel
+        ? g.itens.length + " ficha" + (g.itens.length === 1 ? "" : "s") + " sem nome de liderança legível — confira os nomes abaixo e digite manualmente."
+        : g.itens.length + " ficha" + (g.itens.length === 1 ? "" : "s");
+    }
     PENDENTE = { grupos, avisos, unico: false };
-    linhas = grupos.map((g) => ({
-      raw: g.raw,
-      info: g.semNomeLegivel
-        ? g.itens.length + " ficha" + (g.itens.length === 1 ? "" : "s") + " sem nome de liderança legível — digite manualmente."
-        : g.itens.length + " ficha" + (g.itens.length === 1 ? "" : "s"),
-    }));
     intro = grupos.length + " lideranças diferentes nas fotos enviadas. Confirme o nome de cada uma.";
   }
 
   $("confirmar-intro").textContent = intro;
   const cont = $("confirmar-lista");
   cont.replaceChildren();
-  for (const l of linhas) {
+  for (const g of PENDENTE.grupos) {
     const row = document.createElement("div");
     row.className = "field";
+
+    // Grupo sem nome de liderança legível: uma liderança só pra 40
+    // fichas diferentes ficava errado. Em vez de um nome pro bloco
+    // inteiro, cada ficha ganha seu próprio campo — o usuário confere
+    // com a folha original e digita a liderança dela, marcando o
+    // checkbox pra não perder onde parou. No fim, quem ficar com o
+    // mesmo nome digitado se junta (mesma lógica dos grupos normais).
+    if (g.semNomeLegivel) {
+      const hint = document.createElement("p");
+      hint.className = "hint"; hint.textContent = g.info;
+      row.append(hint);
+
+      const det = document.createElement("details");
+      det.className = "fichas"; det.open = true;
+      const sum = document.createElement("summary");
+      sum.textContent = "Fichas sem liderança (" + g.itens.length + ")";
+      const ul = document.createElement("ul");
+      for (const b of g.itens) {
+        const li = document.createElement("li");
+        li.className = "ficha-solta";
+
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        const nome = (b.nome || "").trim() || "(nome não identificado)";
+        const zona = (b.zona || "").trim(), secao = (b.secao || "").trim();
+        nm.textContent = nome + (zona || secao ? " — zona " + (zona || "—") + " · seção " + (secao || "—") : "");
+
+        const row2 = document.createElement("div");
+        row2.className = "row2";
+        const chk = document.createElement("input");
+        chk.type = "checkbox"; chk.setAttribute("aria-label", "Conferido: " + nome);
+        const inp = document.createElement("input");
+        inp.type = "text"; inp.autocomplete = "off";
+        inp.placeholder = "Liderança desta ficha";
+        inp.itens = [b];
+        inp.disabled = true;
+        inp.chk = chk; inp.li = li;
+        chk.onchange = () => alternarFicha(chk, inp, li);
+        row2.append(chk, inp);
+
+        li.append(nm, row2);
+        ul.append(li);
+      }
+      det.append(sum, ul);
+      row.append(det);
+      cont.append(row);
+      continue;
+    }
+
+    const linha = document.createElement("div");
+    linha.className = "row2";
     const inp = document.createElement("input");
     inp.type = "text"; inp.autocomplete = "off";
-    inp.placeholder = "Nome da liderança"; inp.value = l.raw;
+    inp.placeholder = "Nome da liderança"; inp.value = g.raw;
+    inp.itens = g.itens;
+    // Marca visual de "já conferi esta lista" — útil quando o lote traz
+    // muitas lideranças e é fácil perder onde parou de revisar os nomes.
+    // Liga nos dois sentidos com os checkboxes de cada nome, abaixo:
+    // marcar todos os nomes marca este, e marcar este marca todos eles.
+    const marcacoes = [];
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.setAttribute("aria-label", "Conferido: " + (g.raw || "esta liderança"));
+    chk.onchange = () => {
+      row.classList.toggle("conferida", chk.checked);
+      for (const c of marcacoes) {
+        c.checked = chk.checked;
+        c.closest("li").classList.toggle("conferida", chk.checked);
+      }
+    };
+    linha.append(inp, chk);
     const hint = document.createElement("p");
-    hint.className = "hint"; hint.textContent = l.info;
-    row.append(inp, hint);
+    hint.className = "hint"; hint.textContent = g.info;
+    row.append(linha, hint);
+
+    // Pra reconhecer de quem é o grupo comparando com a folha original,
+    // com um checkbox por nome. Quando todos ficam marcados, o checkbox
+    // da liderança marca sozinho — conferir nome a nome também conta
+    // como "conferi essa lista inteira".
+    if (g.itens.length) {
+      const det = document.createElement("details");
+      det.className = "fichas";
+      const sum = document.createElement("summary");
+      sum.textContent = "Ver nomes das fichas (" + g.itens.length + ")";
+      const ul = document.createElement("ul");
+      for (const b of g.itens) {
+        const li = document.createElement("li");
+        li.className = "nome-check";
+        const nome = (b.nome || "").trim() || "(nome não identificado)";
+        const zona = (b.zona || "").trim(), secao = (b.secao || "").trim();
+        const c = document.createElement("input");
+        c.type = "checkbox"; c.setAttribute("aria-label", "Conferido: " + nome);
+        const nm = document.createElement("span");
+        nm.className = "nm";
+        nm.textContent = nome + (zona || secao ? " — zona " + (zona || "—") + " · seção " + (secao || "—") : "");
+        c.onchange = () => {
+          li.classList.toggle("conferida", c.checked);
+          const todas = marcacoes.every((x) => x.checked);
+          chk.checked = todas;
+          row.classList.toggle("conferida", todas);
+        };
+        marcacoes.push(c);
+        li.append(c, nm);
+        ul.append(li);
+      }
+      det.append(sum, ul);
+      row.append(det);
+    }
+
     cont.append(row);
   }
 
   trocarTela("confirmar");
-  cont.querySelector("input").focus();
+  const primeiro = cont.querySelector("input[type=text]:not(:disabled)");
+  if (primeiro) primeiro.focus();
 }
 
 $("b-confirmar-lider").onclick = async () => {
   if (!PENDENTE) return;
-  const inputs = [...$("confirmar-lista").querySelectorAll("input")];
-  for (const el of inputs) if (!el.value.trim()) { el.focus(); return; }
+  // Cada campo de texto carrega os itens que ele representa (um grupo
+  // inteiro, ou uma ficha solta) — não dá mais pra confiar no índice,
+  // já que o grupo "sem liderança" vira um campo por ficha.
+  const inputs = [...$("confirmar-lista").querySelectorAll("input[type=text]")];
+  for (const el of inputs) {
+    if (el.value.trim()) continue;
+    // Ficha solta ainda desabilitada (checkbox não marcado): habilita o
+    // campo antes de focar, senão o foco não pega num input desabilitado.
+    if (el.disabled && el.chk) { el.chk.checked = true; alternarFicha(el.chk, el, el.li); }
+    el.focus();
+    el.scrollIntoView({ block: "center" });
+    return;
+  }
 
-  const brutosGrupos = PENDENTE.grupos.map((g, i) => ({ lideranca: inputs[i].value.trim(), itens: g.itens }));
+  const brutosGrupos = inputs.map((el) => ({ lideranca: el.value.trim(), itens: el.itens }));
   const { avisos, unico } = PENDENTE;
   PENDENTE = null;
   trocarTela("run");
@@ -945,7 +1067,10 @@ function mostrarResumoLote(resultados, avisos) {
     const nBad = res.filter((r) => r.status === "erro").length;
     const nWarn = res.length - nOk - nBad;
 
-    const row = document.createElement("div"); row.className = "card";
+    // Botão em vez de div: dá pra abrir a lista de só essa liderança
+    // (cartões coloridos e "Exportar PDF" individuais), sem precisar do ZIP.
+    const row = document.createElement("button"); row.type = "button"; row.className = "card click";
+    row.onclick = () => mostrarResultado(res, [], lideranca, true);
     const hd = document.createElement("div"); hd.className = "hd";
     const nm = document.createElement("div"); nm.className = "nome"; nm.textContent = lideranca;
     hd.append(nm); row.append(hd);
@@ -955,11 +1080,16 @@ function mostrarResumoLote(resultados, avisos) {
     info.textContent = res.length + " cadastros · " + nOk + " conferem · " + nBad + " com problema · " + nWarn + " a verificar";
     dd.append(info); row.append(dd);
 
+    const hint = document.createElement("p"); hint.className = "hint";
+    hint.textContent = "Toque para abrir e exportar só esta lista";
+    row.append(hint);
+
     lista.append(row);
   }
 }
 
 $("b-lote-zip").onclick = () => { if (ULTIMO_LOTE) baixarZipLote(ULTIMO_LOTE); };
+$("b-lote-voltar").onclick = () => trocarTela("lote");
 
 $("b-lote-nova").onclick = () => {
   ULTIMO_LOTE = null;
@@ -1045,11 +1175,17 @@ function escapar(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
 }
 
-function mostrarResultado(res, avisos, lideranca) {
+function mostrarResultado(res, avisos, lideranca, veioDoLote) {
   trocarTela("res");
   ULTIMO = { res, lideranca };
   const topo = $("res-topo"), cards = $("res-cards"), saida = $("res-saida");
   topo.replaceChildren(); cards.replaceChildren(); saida.replaceChildren();
+
+  // Vindo do resumo do lote: "Refazer leitura" apagaria e releria as
+  // fotos do lote inteiro como se fossem só desta liderança, então some
+  // com esse botão e mostra um jeito de voltar pro resumo em vez dele.
+  $("b-refazer").hidden = !!veioDoLote;
+  $("b-lote-voltar").hidden = !veioDoLote;
 
   const nOk  = res.filter((r) => r.status === "ok").length;
   const nBad = res.filter((r) => r.status === "erro").length;
@@ -1256,6 +1392,10 @@ function gerarPdfLista(lideranca, res) {
   doc.setDrawColor(210); doc.line(margem, y, direita, y); y += 6;
 
   const PILL = { ok: "CONFERE", erro: "PROBLEMA", fora: "VERIFICAR", incompleto: "INCOMPLETO" };
+  // Mesmas cores da borda/pill dos cartões na tela (--ok/--bad/--warn em
+  // impressão), pra o PDF do lote não sair todo em preto e cinza.
+  const CORPDF = { ok: [20, 96, 63], erro: [142, 42, 25], fora: [116, 75, 14], incompleto: [116, 75, 14] };
+  const CORLOCAL = { ok: [20, 96, 63], bad: [142, 42, 25], warn: [116, 75, 14] };
   const precisa = (altura) => { if (y + altura > 297 - margem) { doc.addPage(); y = margem; } };
 
   for (const r of res) {
@@ -1263,10 +1403,12 @@ function gerarPdfLista(lideranca, res) {
     const probLinhas = r.problemas.flatMap((p) => doc.splitTextToSize("• " + p, largura - 2));
     const alturaEstimada = 18 + enderecoLinhas.length * 3.6 + probLinhas.length * 3.6 + (r.dup ? 4.5 : 0);
     precisa(alturaEstimada);
+    const corStatus = CORPDF[r.status] || CORPDF.incompleto;
+    const yTopo = y;
 
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(20);
     doc.text(r.nome, margem, y);
-    doc.setFontSize(8); doc.setTextColor(120);
+    doc.setFontSize(8); doc.setTextColor(...corStatus);
     doc.text(r.dup ? "DUPLICADO" : PILL[r.status], direita, y, { align: "right" });
     y += 5;
 
@@ -1279,20 +1421,21 @@ function gerarPdfLista(lideranca, res) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(130);
     doc.text("LOCAL DE VOTAÇÃO", margem, y); y += 3.8;
 
+    const corLocal = CORLOCAL[r.localCor] || [20, 20, 20];
     if (r.local) {
-      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(20);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...corLocal);
       doc.text(r.local.local_votacao, margem, y); y += 4;
-      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(20);
       doc.text(enderecoLinhas, margem, y); y += enderecoLinhas.length * 3.6;
       doc.setTextColor(140);
       doc.text(Number(r.local.eleitores).toLocaleString("pt-BR") + " eleitores nesta seção", margem, y); y += 4.5;
     } else {
-      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(20);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...corLocal);
       doc.text(r.localMsg, margem, y); y += 5;
     }
 
     if (r.dup) {
-      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(140, 74, 20);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...CORPDF.fora);
       doc.text("Já está na lista de " + r.dup, margem, y); y += 4.5;
     }
 
@@ -1300,6 +1443,9 @@ function gerarPdfLista(lideranca, res) {
       doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
       doc.text(probLinhas, margem, y); y += probLinhas.length * 3.6;
     }
+
+    doc.setFillColor(...corStatus);
+    doc.rect(margem - 4, yTopo - 4, 1, y - yTopo, "F");
 
     y += 3;
     doc.setDrawColor(225); doc.line(margem, y, direita, y);
