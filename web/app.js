@@ -782,7 +782,7 @@ async function analisar(opcoes) {
   if (refazer) {
     await finalizarLeitura(lideranca, brutos, avisos);
   } else {
-    mostrarConfirmacaoLideranca(brutos, avisos);
+    mostrarConfirmacaoLideranca(brutos, avisos, $("in-modo-lote").checked);
   }
 }
 
@@ -793,7 +793,7 @@ async function analisar(opcoes) {
    um grupo por liderança, cada um confirmado e gravado separadamente. */
 let PENDENTE = null;
 
-function mostrarConfirmacaoLideranca(brutos, avisos) {
+function mostrarConfirmacaoLideranca(brutos, avisos, modoLote) {
   const nomeados = new Map(); // chave normalizada -> { raw, itens }
   const semNome = [];
   for (const b of brutos) {
@@ -806,7 +806,10 @@ function mostrarConfirmacaoLideranca(brutos, avisos) {
   const grupos = [...nomeados.values()].sort((a, b) => b.itens.length - a.itens.length);
 
   let linhas, intro;
-  if (grupos.length <= 1) {
+  // Fora do modo lote, é sempre uma lista só — o OCR lê o nome da
+  // liderança diferente de folha pra folha, e sem o switch isso empurrava
+  // toda leitura pro modo lote (e pro ZIP) mesmo sendo uma pessoa só.
+  if (!modoLote || grupos.length <= 1) {
     // Um nome só (ou nenhum): as fichas sem nome legível entram juntas,
     // exatamente como antes.
     const raw = grupos[0] ? grupos[0].raw : "";
@@ -855,14 +858,26 @@ $("b-confirmar-lider").onclick = async () => {
   const inputs = [...$("confirmar-lista").querySelectorAll("input")];
   for (const el of inputs) if (!el.value.trim()) { el.focus(); return; }
 
-  const grupos = PENDENTE.grupos.map((g, i) => ({ lideranca: inputs[i].value.trim(), itens: g.itens }));
+  const brutosGrupos = PENDENTE.grupos.map((g, i) => ({ lideranca: inputs[i].value.trim(), itens: g.itens }));
   const { avisos, unico } = PENDENTE;
   PENDENTE = null;
   trocarTela("run");
 
   if (unico) {
-    await finalizarLeitura(grupos[0].lideranca, grupos[0].itens, avisos);
+    await finalizarLeitura(brutosGrupos[0].lideranca, brutosGrupos[0].itens, avisos);
     return;
+  }
+
+  // O OCR pode ler o nome da mesma liderança diferente em folhas
+  // diferentes, gerando grupos separados. Se o usuário corrigiu para o
+  // mesmo nome aqui, junta num grupo só antes de gerar as listas.
+  const grupos = [];
+  const porNome = new Map();
+  for (const g of brutosGrupos) {
+    const chave = normalizarNome(g.lideranca);
+    const existente = porNome.get(chave);
+    if (existente) existente.itens.push(...g.itens);
+    else { const novo = { lideranca: g.lideranca, itens: [...g.itens] }; porNome.set(chave, novo); grupos.push(novo); }
   }
 
   const resultados = [];

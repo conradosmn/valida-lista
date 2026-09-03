@@ -260,6 +260,15 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
       <div class="files" id="lista-arquivos"></div>
     </div>
 
+    <div class="field">
+      <label class="lbl">Modo de leitura</label>
+      <label style="display:flex;align-items:center;gap:9px;font-size:14.5px;color:var(--ink)">
+        <input type="checkbox" id="in-modo-lote" style="width:auto">
+        Várias lideranças nesta leitura (lote)
+      </label>
+      <p class="hint">Desmarcado: gera uma lista só, no nome de uma liderança (padrão). Marque quando as fotos juntarem fichas de lideranças diferentes — cada uma vira um PDF, dentro de um ZIP.</p>
+    </div>
+
     <div id="aviso-form"></div>
     <button class="btn btn-primary" id="b-analisar" type="button" disabled>Analisar lista</button>
   </section>
