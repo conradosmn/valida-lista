@@ -13,6 +13,13 @@
 //   supabase secrets set GEMINI_API_KEY=...
 //   supabase secrets set ORIGENS_PERMITIDAS="https://confere.seudominio.com.br"
 //
+// GEMINI_API_KEY_PAGA é opcional: uma segunda chave (de um projeto COM
+// billing) usada só como reserva, quando a chave principal (pensada pra
+// ficar no tier grátis) estourar o limite de requisições. Sem essa
+// variável, o comportamento é o de sempre.
+//
+//   supabase secrets set GEMINI_API_KEY_PAGA=...
+//
 // Deixe a verificação de JWT LIGADA (o padrão). O site manda a anon key
 // no cabeçalho Authorization, que já satisfaz a verificação — e assim
 // quem não tem a chave nem chega a gastar seu crédito do Gemini.
@@ -100,8 +107,11 @@ Deno.serve(async (req) => {
     return json({ erro: "Origem não autorizada." }, 403, cabecalhos);
   }
 
-  const chave = Deno.env.get("GEMINI_API_KEY");
-  if (!chave) {
+  const CHAVES = [
+    Deno.env.get("GEMINI_API_KEY") ?? "",
+    Deno.env.get("GEMINI_API_KEY_PAGA") ?? "",
+  ].filter(Boolean);
+  if (!CHAVES.length) {
     return json({ erro: "A função está sem a chave do Gemini configurada." }, 500, cabecalhos);
   }
 
@@ -146,51 +156,61 @@ Deno.serve(async (req) => {
     let usado = "";
     let ultimoStatus = 0;
 
-    for (const modelo of MODELOS) {
-      let r: Response;
-      try {
-        r = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-goog-api-key": chave },
-            body: corpoGemini,
-            // Prazo por modelo: quando um está congestionado ele demora
-            // mais de um minuto só para falhar. Sem este corte, a espera
-            // dos modelos se soma e a leitura passa de dois minutos.
-            signal: AbortSignal.timeout(PRAZO_MODELO),
-          },
-        );
-      } catch (e) {
-        console.error("gemini", modelo, "sem resposta", String(e).slice(0, 200));
-        ultimoStatus = 504;
-        continue;
+    // Testa os modelos com a chave atual (sobrecarga/freio de taxa); só
+    // quando TODOS falham é que passa pra próxima chave — assim
+    // aproveita ao máximo o tier grátis antes de gastar da paga.
+    porChave:
+    for (const chave of CHAVES) {
+      for (const modelo of MODELOS) {
+        let r: Response;
+        try {
+          r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-goog-api-key": chave },
+              body: corpoGemini,
+              // Prazo por modelo: quando um está congestionado ele demora
+              // mais de um minuto só para falhar. Sem este corte, a espera
+              // dos modelos se soma e a leitura passa de dois minutos.
+              signal: AbortSignal.timeout(PRAZO_MODELO),
+            },
+          );
+        } catch (e) {
+          console.error("gemini", modelo, "sem resposta", String(e).slice(0, 200));
+          ultimoStatus = 504;
+          continue;
+        }
+
+        if (r.ok) { dados = await r.json(); usado = modelo; break porChave; }
+
+        const detalhe = await r.text();
+        console.error("gemini", modelo, r.status, detalhe.slice(0, 400));
+        ultimoStatus = r.status;
+
+        // Sobrecarga ou freio de taxa: vale tentar o próximo modelo (e,
+        // esgotados os modelos, a próxima chave).
+        if (r.status >= 500 || r.status === 429) continue;
+
+        // Chave recusada: repetir com outro modelo não resolve, mas a
+        // próxima chave (se houver) pode funcionar.
+        if (r.status === 403) continue porChave;
+
+        const msg = r.status === 400 ? "O Gemini recusou a requisição. Confira o nome do modelo."
+          : "Não consegui ler esta página.";
+        return json({ erro: msg }, r.status, cabecalhos);
       }
-
-      if (r.ok) { dados = await r.json(); usado = modelo; break; }
-
-      const detalhe = await r.text();
-      console.error("gemini", modelo, r.status, detalhe.slice(0, 400));
-      ultimoStatus = r.status;
-
-      // Sobrecarga ou freio de taxa: vale tentar o próximo modelo.
-      // Erro de chave ou de requisição seria igual em todos.
-      if (r.status >= 500 || r.status === 429) continue;
-
-      const msg =
-        r.status === 400 ? "O Gemini recusou a requisição. Confira o nome do modelo."
-        : r.status === 403 ? "A chave do Gemini foi recusada."
-        : "Não consegui ler esta página.";
-      return json({ erro: msg }, r.status === 403 ? 500 : r.status, cabecalhos);
     }
 
     if (!dados) {
       const msg = ultimoStatus === 429
         ? "Muitas leituras seguidas. Espere um pouco."
+        : ultimoStatus === 403
+        ? "A chave do Gemini foi recusada."
         : ultimoStatus === 504
         ? "O Gemini demorou demais para responder. Tente de novo."
         : "O Gemini está sobrecarregado. Tente de novo.";
-      return json({ erro: msg }, ultimoStatus || 502, cabecalhos);
+      return json({ erro: msg }, ultimoStatus === 403 ? 500 : (ultimoStatus || 502), cabecalhos);
     }
 
     const bloqueio = dados?.promptFeedback?.blockReason;
