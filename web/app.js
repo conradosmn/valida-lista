@@ -274,7 +274,7 @@ async function paginasDePdf(file) {
   const out = [];
   // Teto pra não travar o navegador com um PDF gigante — a leitura em
   // lote junta fichas de várias lideranças, então precisa de folga.
-  const lidas = Math.min(pdf.numPages, 60);
+  const lidas = Math.min(pdf.numPages, 30);
   for (let p = 1; p <= lidas; p++) {
     const page = await pdf.getPage(p);
     const base = page.getViewport({ scale: 1 });
