@@ -60,6 +60,7 @@ img{max-width:100%}
 
 .step{display:flex;flex-direction:column;gap:26px}
 .field{display:flex;flex-direction:column;gap:8px}
+#confirmar-lista{display:flex;flex-direction:column;gap:18px}
 label.lbl{font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
 .hint{font-size:13.5px;color:var(--ink-2);margin:0}
 
@@ -195,7 +196,7 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
   @page{margin:14mm 12mm}
 
   /* fora da folha: controles, progresso e a caixa do WhatsApp */
-  .top, .acoes-fim, #res-saida, #tela-form, #tela-run, #tela-confirmar, .foot { display:none !important; }
+  .top, .acoes-fim, #res-saida, #tela-form, #tela-run, #tela-confirmar, #tela-lote, .foot { display:none !important; }
 
   #cabecalho-impressao{display:block !important;margin:0 0 14px}
   #cabecalho-impressao h2{margin:0 0 2px;font-size:15pt;letter-spacing:-.01em}
@@ -292,15 +293,22 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
     <button class="btn btn-quiet" id="b-parar" type="button">Parar</button>
   </section>
 
-  <!-- 2.5 CONFIRMAR LIDERANÇA -->
+  <!-- 2.5 CONFIRMAR LIDERANÇA(S) -->
   <section class="step" id="tela-confirmar" hidden>
-    <div class="field">
-      <label class="lbl" for="lider-confirmado">Nome da liderança</label>
-      <input type="text" id="lider-confirmado" autocomplete="off">
-      <p class="hint" id="lider-confirmado-hint"></p>
-    </div>
+    <p class="hint" id="confirmar-intro"></p>
+    <div id="confirmar-lista"></div>
     <button class="btn btn-primary" id="b-confirmar-lider" type="button">Confirmar e gravar</button>
     <button class="btn btn-ghost" id="b-cancelar-lider" type="button">Cancelar</button>
+  </section>
+
+  <!-- 2.7 RESUMO DO LOTE (só aparece com mais de uma liderança no mesmo envio) -->
+  <section class="step" id="tela-lote" hidden>
+    <div id="lote-topo"></div>
+    <div class="cards" id="lote-lista"></div>
+    <div class="acoes-fim">
+      <button class="btn btn-primary" id="b-lote-zip" type="button">Baixar ZIP com os PDFs</button>
+      <button class="btn btn-ghost" id="b-lote-nova" type="button">Nova lista</button>
+    </div>
   </section>
 
   <!-- 3. RESULTADO -->
@@ -329,6 +337,9 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Só usadas na exportação em lote: um PDF por liderança dentro de um ZIP. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>

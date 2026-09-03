@@ -62,12 +62,29 @@ duplicado escapava.
 versão pedia o nome antes de anexar as fotos, e avisava (virando
 "verificar") sempre que o quadro trazia um nome diferente do digitado —
 pensado para pegar lote com fotos de lideranças misturadas. Na prática o
-fluxo real é sempre uma liderança por leitura, e letra à mão raramente
+uso normal é sempre uma liderança por leitura, e letra à mão raramente
 bate igual com o que seria digitado ("Juliana" vs "Juliana R-S",
 "Ivany" lido como "Juany"): o aviso virou ruído, com a lista inteira
 caindo em "verificar" por causa de grafia. Trocado por: lê as fotos
-primeiro, sugere o nome mais comum entre os quadros lidos, e o
-coordenador confirma ou corrige numa tela antes de gravar.
+primeiro, agrupa pelo nome que cada quadro trouxe e sugere, e o
+coordenador confirma ou corrige numa tela antes de gravar. Isso também
+abriu a porta pra leitura em lote (ver abaixo) sem precisar de uma tela
+separada — o agrupamento já faz o trabalho de separar lideranças
+diferentes num mesmo envio.
+
+**Leitura em lote: um envio pode ter várias lideranças.** Motivado por um
+caso real — o coordenador recebeu fichas escaneadas em PDF de várias
+lideranças de uma vez e não queria repetir o processo pra cada uma.
+Como o nome já é agrupado por quadro lido (decisão acima), bastou deixar
+de colapsar em um só grupo quando o envio traz mais de um nome: aparece
+uma linha de confirmação por liderança encontrada, cada uma processada e
+gravada separadamente, com um resumo no final. Exportação nesse caso não
+usa a impressão do navegador — não dá pra abrir N caixas de diálogo de
+impressão sem clique manual em cada uma — usa jsPDF pra desenhar cada
+lista e JSZip pra empacotar num único arquivo. É a primeira exceção ao
+"sem biblioteca" do projeto (a leitura de PDF escaneado, com pdf.js, já
+era outra), mas escrever um leiaute A4 na mão evita puxar um renderizador
+de HTML pra PDF só pra isso.
 
 **Campos grudados são separados por força bruta validada.** A leitura às
 vezes junta zona + seção + telefone num campo só

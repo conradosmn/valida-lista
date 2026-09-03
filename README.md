@@ -9,15 +9,17 @@ Site estático: HTML, CSS e JavaScript puros. Sem build, sem framework.
 ## Como funciona
 
 1. O coordenador anexa as fotos das folhas (câmera, galeria ou PDF
-   escaneado) — sempre de uma única liderança por vez.
+   escaneado) — de uma liderança só, ou de várias misturadas num envio
+   em lote.
 2. Cada folha vai para a Edge Function `ocr`, que chama o Gemini e
    devolve os quadros transcritos em JSON.
-3. O site sugere o nome da liderança a partir do que foi lido nas
-   fichas; o coordenador confirma ou corrige.
+3. O site agrupa pelo nome de liderança que cada quadro trouxe e
+   sugere; o coordenador confirma ou corrige cada nome encontrado.
 4. Confere zona e seção contra `locais_votacao` e mostra o local em
    verde, ou o problema em vermelho.
 5. Grava em `cadastros` e avisa quem já aparece na lista de outra
-   liderança.
+   liderança. Num envio em lote, mostra o resumo de cada liderança e
+   oferece um ZIP com um PDF individual por lista.
 
 ## Estrutura
 

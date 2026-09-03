@@ -613,7 +613,7 @@ function progresso(f) {
 }
 
 function trocarTela(qual) {
-  for (const t of ["form", "run", "confirmar", "res"]) $("tela-" + t).hidden = (t !== qual);
+  for (const t of ["form", "run", "confirmar", "lote", "res"]) $("tela-" + t).hidden = (t !== qual);
   if (qual !== "res") document.title = "Confere Lista";
   window.scrollTo({ top: 0 });
 }
@@ -785,44 +785,171 @@ async function analisar(opcoes) {
 }
 
 /* Nova lista: em vez de pedir o nome antes de ler (letra à mão raramente
-   bate igual com o que seria digitado), sugere o nome mais comum entre
-   as fichas lidas e deixa confirmar ou corrigir. */
+   bate igual com o que seria digitado), agrupa pelo nome que cada quadro
+   trouxe e sugere. Normalmente dá um grupo só (o fluxo de sempre). Quando
+   o envio junta fotos de lideranças diferentes (leitura em lote), vira
+   um grupo por liderança, cada um confirmado e gravado separadamente. */
 let PENDENTE = null;
 
 function mostrarConfirmacaoLideranca(brutos, avisos) {
-  const contagem = new Map();
+  const nomeados = new Map(); // chave normalizada -> { raw, itens }
+  const semNome = [];
   for (const b of brutos) {
     const raw = (b.lideranca || "").trim();
-    if (!raw) continue;
+    if (!raw) { semNome.push(b); continue; }
     const chave = normalizarNome(raw);
-    const g = contagem.get(chave);
-    if (g) g.n++; else contagem.set(chave, { raw, n: 1 });
+    const g = nomeados.get(chave);
+    if (g) g.itens.push(b); else nomeados.set(chave, { raw, itens: [b] });
   }
-  let sugestao = "", info = "Nenhuma ficha trouxe o nome da liderança legível. Digite abaixo.";
-  if (contagem.size) {
-    const g = [...contagem.values()].sort((a, b) => b.n - a.n)[0];
-    sugestao = g.raw;
-    info = g.n === brutos.length
-      ? "Todas as fichas trazem esse nome."
-      : g.n + " de " + brutos.length + " ficha" + (brutos.length === 1 ? "" : "s") + " trazem esse nome.";
+  const grupos = [...nomeados.values()].sort((a, b) => b.itens.length - a.itens.length);
+
+  let linhas, intro;
+  if (grupos.length <= 1) {
+    // Um nome só (ou nenhum): as fichas sem nome legível entram juntas,
+    // exatamente como antes.
+    const raw = grupos[0] ? grupos[0].raw : "";
+    const n = grupos[0] ? grupos[0].itens.length : 0;
+    const info = !grupos[0]
+      ? "Nenhuma ficha trouxe o nome da liderança legível. Digite abaixo."
+      : n === brutos.length ? "Todas as fichas trazem esse nome."
+      : n + " de " + brutos.length + " ficha" + (brutos.length === 1 ? "" : "s") + " trazem esse nome.";
+    PENDENTE = { grupos: [{ raw, itens: brutos }], avisos, unico: true };
+    linhas = [{ raw, info }];
+    intro = "";
+  } else {
+    // Leitura em lote: um grupo por liderança encontrada nas fotos.
+    if (semNome.length) grupos.push({ raw: "", itens: semNome, semNomeLegivel: true });
+    PENDENTE = { grupos, avisos, unico: false };
+    linhas = grupos.map((g) => ({
+      raw: g.raw,
+      info: g.semNomeLegivel
+        ? g.itens.length + " ficha" + (g.itens.length === 1 ? "" : "s") + " sem nome de liderança legível — digite manualmente."
+        : g.itens.length + " ficha" + (g.itens.length === 1 ? "" : "s"),
+    }));
+    intro = grupos.length + " lideranças diferentes nas fotos enviadas. Confirme o nome de cada uma.";
   }
-  PENDENTE = { brutos, avisos };
-  $("lider-confirmado").value = sugestao;
-  $("lider-confirmado-hint").textContent = info;
+
+  $("confirmar-intro").textContent = intro;
+  const cont = $("confirmar-lista");
+  cont.replaceChildren();
+  for (const l of linhas) {
+    const row = document.createElement("div");
+    row.className = "field";
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.autocomplete = "off";
+    inp.placeholder = "Nome da liderança"; inp.value = l.raw;
+    const hint = document.createElement("p");
+    hint.className = "hint"; hint.textContent = l.info;
+    row.append(inp, hint);
+    cont.append(row);
+  }
+
   trocarTela("confirmar");
-  $("lider-confirmado").focus();
+  cont.querySelector("input").focus();
 }
 
 $("b-confirmar-lider").onclick = async () => {
-  const nome = $("lider-confirmado").value.trim();
-  if (!nome) { $("lider-confirmado").focus(); return; }
-  const pend = PENDENTE; PENDENTE = null;
+  if (!PENDENTE) return;
+  const inputs = [...$("confirmar-lista").querySelectorAll("input")];
+  for (const el of inputs) if (!el.value.trim()) { el.focus(); return; }
+
+  const grupos = PENDENTE.grupos.map((g, i) => ({ lideranca: inputs[i].value.trim(), itens: g.itens }));
+  const { avisos, unico } = PENDENTE;
+  PENDENTE = null;
   trocarTela("run");
-  await finalizarLeitura(nome, pend.brutos, pend.avisos);
+
+  if (unico) {
+    await finalizarLeitura(grupos[0].lideranca, grupos[0].itens, avisos);
+    return;
+  }
+
+  const resultados = [];
+  for (let i = 0; i < grupos.length; i++) {
+    elAgora.textContent = "Conferindo " + grupos[i].lideranca + " (" + (i + 1) + " de " + grupos.length + ")…";
+    progresso(i / grupos.length);
+    resultados.push(await processarGrupo(grupos[i].lideranca, grupos[i].itens));
+  }
+  progresso(1);
+  mostrarResumoLote(resultados, avisos);
 };
 
 $("b-cancelar-lider").onclick = () => {
   PENDENTE = null;
+  trocarTela("form");
+};
+
+/* Versão enxuta de finalizarLeitura para o processamento em lote: sem as
+   barras de fase (elas são pensadas para uma lista só) e sem navegar pra
+   tela de resultado — quem chama decide o que fazer com o retorno. */
+async function processarGrupo(lideranca, brutos) {
+  const res = brutos.map((b) => conferir(b));
+  try {
+    const chaves = [...new Set(
+      res.filter((r) => r.zona && r.secao && r.nome !== "(nome não identificado)")
+         .map((r) => r.chave),
+    )];
+    const dups = await buscarDuplicados(chaves, lideranca);
+    for (const r of res) {
+      const d = dups.get(r.chave);
+      if (d) {
+        r.dup = d.lideranca;
+        if (RANK["fora"] > RANK[r.status]) r.status = "fora";
+        r.problemas.push("Já cadastrado na lista de " + d.lideranca + ".");
+      }
+    }
+    await registrar(res, lideranca);
+  } catch (e) {
+    console.error(e);
+  }
+  return { lideranca, res };
+}
+
+let ULTIMO_LOTE = null;
+
+function mostrarResumoLote(resultados, avisos) {
+  trocarTela("lote");
+  ULTIMO_LOTE = resultados;
+
+  const topo = $("lote-topo");
+  topo.replaceChildren();
+  const h2 = document.createElement("h2");
+  h2.textContent = resultados.length + " listas processadas";
+  topo.append(h2);
+  if (avisos && avisos.length) {
+    const d = document.createElement("div"); d.className = "note warn";
+    d.innerHTML = "<b>Avisos da leitura</b><br>" + avisos.map(escapar).join("<br>");
+    topo.append(d);
+  }
+
+  const lista = $("lote-lista");
+  lista.replaceChildren();
+  for (const { lideranca, res } of resultados) {
+    const nOk = res.filter((r) => r.status === "ok").length;
+    const nBad = res.filter((r) => r.status === "erro").length;
+    const nWarn = res.length - nOk - nBad;
+
+    const row = document.createElement("div"); row.className = "card";
+    const hd = document.createElement("div"); hd.className = "hd";
+    const nm = document.createElement("div"); nm.className = "nome"; nm.textContent = lideranca;
+    hd.append(nm); row.append(hd);
+
+    const dd = document.createElement("div"); dd.className = "dados";
+    const info = document.createElement("span");
+    info.textContent = res.length + " cadastros · " + nOk + " conferem · " + nBad + " com problema · " + nWarn + " a verificar";
+    dd.append(info); row.append(dd);
+
+    lista.append(row);
+  }
+}
+
+$("b-lote-zip").onclick = () => { if (ULTIMO_LOTE) baixarZipLote(ULTIMO_LOTE); };
+
+$("b-lote-nova").onclick = () => {
+  ULTIMO_LOTE = null;
+  for (const a of ANEXOS) if (a.url) URL.revokeObjectURL(a.url);
+  ANEXOS = []; LIDER = "";
+  desenharArquivos();
+  revisarForm();
   trocarTela("form");
 };
 
@@ -1079,6 +1206,111 @@ $("b-pdf").onclick = () => {
   if (!ULTIMO) return;
   window.print();
 };
+
+/* ---------------------------------------------------------------------
+   PDF EM LOTE — um arquivo por liderança, dentro de um ZIP.
+   Aqui sim usa biblioteca (jsPDF + JSZip): não dá pra abrir N caixas de
+   impressão do navegador sem clique em cada uma. Desenhado à mão em vez
+   de fotografar a tela (html2canvas) — sai mais leve e com texto
+   selecionável, ao custo de não copiar o CSS pixel a pixel.
+   ------------------------------------------------------------------- */
+function gerarPdfLista(lideranca, res) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const margem = 14, direita = 210 - margem, largura = direita - margem;
+  let y = margem;
+
+  const nOk = res.filter((r) => r.status === "ok").length;
+  const nBad = res.filter((r) => r.status === "erro").length;
+  const nWarn = res.length - nOk - nBad;
+  const hoje = new Date().toLocaleString("pt-BR", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(20);
+  doc.text("Lista de " + lideranca, margem, y); y += 7;
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(100);
+  doc.text(
+    "Conferida em " + hoje + " · " + res.length + " cadastros · " +
+    nOk + " conferem, " + nBad + " com problema, " + nWarn + " a verificar · Teresina PI",
+    margem, y,
+  );
+  y += 8;
+  doc.setDrawColor(210); doc.line(margem, y, direita, y); y += 6;
+
+  const PILL = { ok: "CONFERE", erro: "PROBLEMA", fora: "VERIFICAR", incompleto: "INCOMPLETO" };
+  const precisa = (altura) => { if (y + altura > 297 - margem) { doc.addPage(); y = margem; } };
+
+  for (const r of res) {
+    const enderecoLinhas = r.local ? doc.splitTextToSize(r.local.bairro + " · " + r.local.endereco, largura) : [];
+    const probLinhas = r.problemas.flatMap((p) => doc.splitTextToSize("• " + p, largura - 2));
+    const alturaEstimada = 18 + enderecoLinhas.length * 3.6 + probLinhas.length * 3.6 + (r.dup ? 4.5 : 0);
+    precisa(alturaEstimada);
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(20);
+    doc.text(r.nome, margem, y);
+    doc.setFontSize(8); doc.setTextColor(120);
+    doc.text(r.dup ? "DUPLICADO" : PILL[r.status], direita, y, { align: "right" });
+    y += 5;
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(20);
+    let linha1 = "Zona " + (r.zona || "—") + " · Seção " + (r.secao || "—");
+    if (r.telefone) linha1 += "   " + formatarTelefone(r.telefone);
+    if (r.titulo) linha1 += "   Título " + formatarTitulo(r.titulo);
+    doc.text(linha1, margem, y); y += 5;
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(130);
+    doc.text("LOCAL DE VOTAÇÃO", margem, y); y += 3.8;
+
+    if (r.local) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(20);
+      doc.text(r.local.local_votacao, margem, y); y += 4;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8);
+      doc.text(enderecoLinhas, margem, y); y += enderecoLinhas.length * 3.6;
+      doc.setTextColor(140);
+      doc.text(Number(r.local.eleitores).toLocaleString("pt-BR") + " eleitores nesta seção", margem, y); y += 4.5;
+    } else {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(20);
+      doc.text(r.localMsg, margem, y); y += 5;
+    }
+
+    if (r.dup) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(140, 74, 20);
+      doc.text("Já está na lista de " + r.dup, margem, y); y += 4.5;
+    }
+
+    if (probLinhas.length) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(60);
+      doc.text(probLinhas, margem, y); y += probLinhas.length * 3.6;
+    }
+
+    y += 3;
+    doc.setDrawColor(225); doc.line(margem, y, direita, y);
+    y += 5;
+  }
+
+  return doc;
+}
+
+// Reaproveita normalizarNome (já tira acento e reduz a letras/números/
+// espaço) em vez de reinventar a limpeza de caracteres para arquivo.
+function nomeArquivoSeguro(s) {
+  return normalizarNome(s).replace(/ /g, "-") || "sem-nome";
+}
+
+async function baixarZipLote(resultados) {
+  const zip = new window.JSZip();
+  for (const { lideranca, res } of resultados) {
+    const doc = gerarPdfLista(lideranca, res);
+    zip.file("Export_" + nomeArquivoSeguro(lideranca) + ".pdf", doc.output("arraybuffer"));
+  }
+  const blob = await zip.generateAsync({ type: "blob" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "confere-lista-" + new Date().toISOString().slice(0, 10) + ".zip";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 $("b-refazer").onclick = () => {
   if (!ULTIMO) return;
