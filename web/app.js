@@ -161,6 +161,7 @@ function conferir(reg) {
   const piora = (s) => { if (RANK[s] > RANK[status]) status = s; };
 
   const nome = (reg.nome || "").trim();
+  const endereco = (reg.endereco || "").trim();
   const tit  = (reg.titulo   || "").replace(/\D/g, "");
   const sep  = separarCampos(
     (reg.zona     || "").replace(/\D/g, ""),
@@ -221,7 +222,7 @@ function conferir(reg) {
 
   return {
     nome: nome || "(nome não identificado)",
-    titulo: tit, zona: zon, secao: sec, telefone: tel,
+    titulo: tit, zona: zon, secao: sec, telefone: tel, endereco,
     chave: chaveDe(nome, zon, sec),
     status, problemas, local, localCor, localMsg,
     dup: null,
@@ -317,6 +318,7 @@ Regras de transcrição:
 - ZONA e SEÇÃO costumam vir com zeros à esquerda (001, 0304). Devolva como está escrito.
 - ZONA e SEÇÃO são campos separados. Nunca junte um no outro.
 - TELEFONE: apenas os dígitos.
+- ENDEREÇO: copie como está escrito, incluindo bairro se vier no mesmo campo ou logo abaixo.
 - Esta ficha normalmente NÃO tem título de eleitor. Só preencha "titulo" se houver mesmo um número de título escrito no quadro.
 - Campo em branco ou que você não consiga ler com certeza: null. Prefira null a chutar — um número errado causa mais estrago do que um campo vazio.
 - Ignore os rótulos impressos do formulário e qualquer anotação fora dos quadros.
@@ -333,6 +335,7 @@ const ESQUEMA = {
       zona:      { type: "STRING", nullable: true },
       secao:     { type: "STRING", nullable: true },
       telefone:  { type: "STRING", nullable: true },
+      endereco:  { type: "STRING", nullable: true },
       titulo:    { type: "STRING", nullable: true },
     },
     required: ["nome"],
@@ -379,7 +382,7 @@ async function transcrever(blob, signal) {
       if (r.status >= 500) err.instavel = true;
       throw err;
     }
-    return Array.isArray(d.linhas) ? d.linhas : [];
+    return { linhas: Array.isArray(d.linhas) ? d.linhas : [], uso: d.uso || null };
   }
 
   if (!CFG.GEMINI_API_KEY || CFG.GEMINI_API_KEY.startsWith("COLE_")) {
@@ -409,12 +412,15 @@ async function transcrever(blob, signal) {
   }
   const d = await r.json();
   const texto = (d?.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+  const uso = d?.usageMetadata
+    ? { entrada: d.usageMetadata.promptTokenCount, saida: d.usageMetadata.candidatesTokenCount }
+    : null;
   try {
     const v = JSON.parse(texto);
-    return Array.isArray(v) ? v : [];
+    return { linhas: Array.isArray(v) ? v : [], uso };
   } catch {
     const i = texto.indexOf("["), f = texto.lastIndexOf("]");
-    if (i !== -1 && f > i) { try { return JSON.parse(texto.slice(i, f + 1)); } catch {} }
+    if (i !== -1 && f > i) { try { return { linhas: JSON.parse(texto.slice(i, f + 1)), uso }; } catch {} }
     throw new Error("a transcrição veio embaralhada");
   }
 }
@@ -471,6 +477,7 @@ async function registrar(res, lideranca) {
       zona: parseInt(r.zona, 10),
       secao: parseInt(r.secao, 10),
       telefone: r.telefone || null,
+      endereco: r.endereco || null,
       titulo: r.titulo || null,
       lideranca,
     });
@@ -574,6 +581,134 @@ function aviso(alvo, classe, html) {
   d.innerHTML = html;
   el.append(d);
 }
+
+/* ---------------------------------------------------------------------
+   IMPORTAR LISTA JÁ DIGITADA — CSV, Excel ou Word, sem passar pelo OCR.
+   Cada formato só precisa virar {cabecalho, linhas}; dali em diante é o
+   mesmo mapeamento de colunas e o mesmo fluxo de confirmação/análise
+   que a leitura de foto usa.
+   ------------------------------------------------------------------- */
+
+// Separador ; é comum em CSV exportado de planilha no padrão brasileiro
+// (a vírgula ali é decimal). Decide pelo que aparece mais na 1ª linha.
+function dividirCsv(texto) {
+  const primeiraLinha = texto.slice(0, texto.indexOf("\n") + 1 || texto.length);
+  const nPontoVirgula = (primeiraLinha.match(/;/g) || []).length;
+  const nVirgula = (primeiraLinha.match(/,/g) || []).length;
+  const sep = nPontoVirgula > nVirgula ? ";" : ",";
+
+  const linhas = [];
+  let campo = "", linha = [], dentroAspas = false;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (dentroAspas) {
+      if (c === '"') {
+        if (texto[i + 1] === '"') { campo += '"'; i++; } else dentroAspas = false;
+      } else campo += c;
+    } else if (c === '"') {
+      dentroAspas = true;
+    } else if (c === sep) {
+      linha.push(campo); campo = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && texto[i + 1] === "\n") i++;
+      linha.push(campo); campo = "";
+      linhas.push(linha); linha = [];
+    } else {
+      campo += c;
+    }
+  }
+  if (campo || linha.length) { linha.push(campo); linhas.push(linha); }
+  return linhas.filter((l) => l.some((c) => c.trim()));
+}
+
+async function lerCsv(file) {
+  const linhas = dividirCsv(await file.text());
+  return { cabecalho: linhas[0] || [], linhas: linhas.slice(1) };
+}
+
+async function lerXlsx(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const linhas = XLSX.utils
+    .sheet_to_json(ws, { header: 1, defval: "", blankrows: false })
+    .map((l) => l.map((c) => String(c)));
+  return { cabecalho: linhas[0] || [], linhas: linhas.slice(1) };
+}
+
+// Só a primeira tabela do documento — é para onde a lista digitada vai
+// normalmente; texto solto fora de tabela é ignorado.
+async function lerDocx(file) {
+  const { value: html } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+  const tabela = new DOMParser().parseFromString(html, "text/html").querySelector("table");
+  if (!tabela) throw new Error("não encontrei uma tabela no documento.");
+  const linhas = [...tabela.querySelectorAll("tr")].map(
+    (tr) => [...tr.querySelectorAll("td,th")].map((c) => c.textContent.trim()),
+  );
+  return { cabecalho: linhas[0] || [], linhas: linhas.slice(1) };
+}
+
+// Nome da coluna → campo interno. Comparado sem acento/maiúscula (via
+// normalizarNome), tolerante a alguns sinônimos comuns de planilha.
+const ALIAS_COLUNA = {
+  nome:      ["NOME", "NOME COMPLETO"],
+  lideranca: ["LIDERANCA", "LIDER", "NOME DA LIDERANCA"],
+  zona:      ["ZONA", "ZONA ELEITORAL", "ZONA DO TITULO", "ZONA DE VOTACAO"],
+  secao:     ["SECAO", "SECAO ELEITORAL", "SECAO DO TITULO", "SECAO DE VOTACAO"],
+  telefone:  ["TELEFONE", "TEL", "CELULAR", "WHATSAPP", "FONE"],
+  titulo:    ["TITULO", "TITULO DE ELEITOR", "TITULO ELEITORAL", "NUMERO DO TITULO"],
+  endereco:  ["ENDERECO", "ENDERECO COMPLETO", "RUA", "LOGRADOURO"],
+};
+
+function mapearColunas(cabecalho) {
+  const normalizados = cabecalho.map((c) => normalizarNome(c));
+  const mapa = {};
+  for (const [campo, alias] of Object.entries(ALIAS_COLUNA)) {
+    const i = normalizados.findIndex((c) => alias.includes(c));
+    if (i !== -1) mapa[campo] = i;
+  }
+  return mapa;
+}
+
+function linhasParaBrutos(cabecalho, linhas) {
+  const mapa = mapearColunas(cabecalho);
+  if (mapa.nome == null) {
+    throw new Error('não encontrei uma coluna de nome no arquivo (ex.: "Nome").');
+  }
+  const pega = (linha, campo) => (mapa[campo] == null ? "" : String(linha[mapa[campo]] ?? "").trim());
+  return linhas
+    .filter((l) => pega(l, "nome"))
+    .map((l) => ({
+      nome: pega(l, "nome"), lideranca: pega(l, "lideranca"),
+      zona: pega(l, "zona"), secao: pega(l, "secao"),
+      telefone: pega(l, "telefone"), titulo: pega(l, "titulo"), endereco: pega(l, "endereco"),
+    }));
+}
+
+$("b-importar").onclick = () => $("in-importar").click();
+$("in-importar").onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  aviso("aviso-form", "", "");
+
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  try {
+    if (!LOCAIS) throw new Error("a base de locais de votação ainda não carregou — aguarde um instante e tente de novo.");
+
+    let dados;
+    if (ext === "csv") dados = await lerCsv(file);
+    else if (ext === "xlsx" || ext === "xls") dados = await lerXlsx(file);
+    else if (ext === "docx") dados = await lerDocx(file);
+    else throw new Error("formato não reconhecido — use CSV, Excel (.xlsx) ou Word (.docx).");
+
+    const brutos = linhasParaBrutos(dados.cabecalho, dados.linhas);
+    if (!brutos.length) throw new Error("não encontrei nenhuma linha com o nome preenchido.");
+
+    mostrarConfirmacaoLideranca(brutos, [], $("in-modo-lote").checked);
+  } catch (err) {
+    aviso("aviso-form", "bad", "<b>Não consegui importar o arquivo.</b><br>" + escapar(err.message));
+  }
+};
 
 /* ---------------------------------------------------------------------
    CARGA INICIAL
@@ -682,6 +817,9 @@ async function analisar(opcoes) {
   const emAndamento = new Map();   // índice -> quando começou a leitura
   const esperandoAte = new Map();  // índice -> quando a pausa termina
   let concluidas = 0;
+  // Gasto de token por folha, só pra depurar consumo — a Edge Function já
+  // devolve isso, aqui só junta e mostra no console.
+  const usoTotal = { entrada: 0, saida: 0 };
 
   /* Sem progresso real da API, cada folha em leitura avança sozinha por
      uma curva que desacelera: rápido no começo, devagar perto do fim, e
@@ -718,10 +856,10 @@ async function analisar(opcoes) {
          de novo, com pausa maior a cada vez. Erro de conteúdo não entra
          aqui — repetir não resolveria e só gastaria crédito. */
       const ESPERAS = [4000, 10000, 20000];
-      let linhas, tentativa = 0;
+      let linhas, uso, tentativa = 0;
       for (;;) {
         try {
-          linhas = await transcrever(pg.blob, ABORT.signal);
+          ({ linhas, uso } = await transcrever(pg.blob, ABORT.signal));
           break;
         } catch (e1) {
           const valeTentar = (e1.freio || e1.instavel || /demorou/i.test(e1.message))
@@ -735,6 +873,11 @@ async function analisar(opcoes) {
           emAndamento.set(i, Date.now());
         }
       }
+      if (uso) {
+        usoTotal.entrada += uso.entrada || 0;
+        usoTotal.saida += uso.saida || 0;
+        console.log("token — " + pg.rotulo, uso);
+      }
       for (const L of linhas) {
         if (L && typeof L === "object") {
           brutos.push({
@@ -744,6 +887,7 @@ async function analisar(opcoes) {
             zona:      L.zona      == null ? "" : String(L.zona),
             secao:     L.secao     == null ? "" : String(L.secao),
             telefone:  L.telefone  == null ? "" : String(L.telefone),
+            endereco:  L.endereco  == null ? "" : String(L.endereco),
           });
         }
       }
@@ -773,6 +917,12 @@ async function analisar(opcoes) {
     avisos.push("A leitura falhou: " + e.message);
   }
   clearInterval(ticker);
+  if (usoTotal.entrada || usoTotal.saida) {
+    console.log(
+      "token — total da leitura (" + paginas.length + (paginas.length === 1 ? " folha" : " folhas") + "):",
+      usoTotal,
+    );
+  }
 
   $("fl-ocr").style.width = "100%";
   $("fase-ocr").classList.add("done");
@@ -1262,6 +1412,11 @@ function cartao(r) {
     tf.textContent = formatarTelefone(r.telefone);
     dd.append(tf);
   }
+  if (r.endereco) {
+    const en = document.createElement("span");
+    en.textContent = r.endereco;
+    dd.append(en);
+  }
   if (r.titulo) {
     const t = document.createElement("span");
     t.textContent = "Título " + formatarTitulo(r.titulo);
@@ -1320,6 +1475,7 @@ function montarTexto(pendentes, todos, lideranca) {
       let linha = "   Zona " + (r.zona || "—") + " · Seção " + (r.secao || "—");
       if (r.telefone) linha += " · " + formatarTelefone(r.telefone);
       L.push(linha);
+      if (r.endereco) L.push("   " + r.endereco);
       for (const p of r.problemas) L.push("   - " + p);
     }
     L.push("");
@@ -1400,8 +1556,10 @@ function gerarPdfLista(lideranca, res) {
 
   for (const r of res) {
     const enderecoLinhas = r.local ? doc.splitTextToSize(r.local.bairro + " · " + r.local.endereco, largura) : [];
+    const enderecoPessoaLinhas = r.endereco ? doc.splitTextToSize(r.endereco, largura) : [];
     const probLinhas = r.problemas.flatMap((p) => doc.splitTextToSize("• " + p, largura - 2));
-    const alturaEstimada = 18 + enderecoLinhas.length * 3.6 + probLinhas.length * 3.6 + (r.dup ? 4.5 : 0);
+    const alturaEstimada = 18 + enderecoLinhas.length * 3.6 + enderecoPessoaLinhas.length * 3.6 +
+      probLinhas.length * 3.6 + (r.dup ? 4.5 : 0);
     precisa(alturaEstimada);
     const corStatus = CORPDF[r.status] || CORPDF.incompleto;
     const yTopo = y;
@@ -1417,6 +1575,11 @@ function gerarPdfLista(lideranca, res) {
     if (r.telefone) linha1 += "   " + formatarTelefone(r.telefone);
     if (r.titulo) linha1 += "   Título " + formatarTitulo(r.titulo);
     doc.text(linha1, margem, y); y += 5;
+
+    if (enderecoPessoaLinhas.length) {
+      doc.setTextColor(80);
+      doc.text(enderecoPessoaLinhas, margem, y); y += enderecoPessoaLinhas.length * 3.6 + 1;
+    }
 
     doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(130);
     doc.text("LOCAL DE VOTAÇÃO", margem, y); y += 3.8;

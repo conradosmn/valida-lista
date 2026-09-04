@@ -70,6 +70,7 @@ Regras de transcrição:
 - ZONA e SEÇÃO costumam vir com zeros à esquerda (001, 0304). Devolva como está escrito.
 - ZONA e SEÇÃO são campos separados. Nunca junte um no outro.
 - TELEFONE: apenas os dígitos.
+- ENDEREÇO: copie como está escrito, incluindo bairro se vier no mesmo campo ou logo abaixo.
 - Esta ficha normalmente NÃO tem título de eleitor. Só preencha "titulo" se houver mesmo um número de título escrito no quadro.
 - Campo em branco ou que você não consiga ler com certeza: null. Prefira null a chutar — um número errado causa mais estrago do que um campo vazio.
 - Ignore os rótulos impressos do formulário e qualquer anotação fora dos quadros.
@@ -88,6 +89,7 @@ const ESQUEMA = {
       zona:      { type: "STRING", nullable: true },
       secao:     { type: "STRING", nullable: true },
       telefone:  { type: "STRING", nullable: true },
+      endereco:  { type: "STRING", nullable: true },
       titulo:    { type: "STRING", nullable: true },
     },
     required: ["nome"],

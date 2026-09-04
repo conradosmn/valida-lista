@@ -37,13 +37,12 @@ create policy "locais: leitura publica"
 -- Mesma pessoa vota sempre na mesma seção, o que torna a combinação
 -- estável. `titulo` fica para os formulários que tiverem o campo.
 --
--- A tabela é recriada aqui porque a versão anterior usava o título como
--- chave única. Ela está vazia, então nada se perde.
+-- "create table if not exists" — nunca apaga uma tabela que já tem
+-- dados. Colunas novas (como `endereco`) entram por "alter table add
+-- column if not exists" logo abaixo, não recriando a tabela.
 -- ---------------------------------------------------------------------
 
-drop table if exists public.cadastros;
-
-create table public.cadastros (
+create table if not exists public.cadastros (
   id         bigint generated always as identity primary key,
   chave      text        not null,
   nome       text        not null,
@@ -55,13 +54,18 @@ create table public.cadastros (
   criado_em  timestamptz not null default now()
 );
 
+-- Colunas adicionadas depois da criação original da tabela — sempre
+-- "if not exists", pra este arquivo poder rodar inteiro quantas vezes
+-- precisar sem risco de apagar nada.
+alter table public.cadastros add column if not exists endereco text;
+
 -- É esta restrição que faz a detecção de duplicado funcionar: a segunda
 -- tentativa de gravar a mesma pessoa é recusada, e o site avisa em qual
 -- lista ela já está.
-create unique index cadastros_chave_key on public.cadastros (chave);
+create unique index if not exists cadastros_chave_key on public.cadastros (chave);
 
 -- Buscar tudo de uma liderança (para revisar ou refazer uma lista).
-create index cadastros_lideranca_idx on public.cadastros (lideranca);
+create index if not exists cadastros_lideranca_idx on public.cadastros (lideranca);
 
 alter table public.cadastros enable row level security;
 

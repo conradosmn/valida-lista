@@ -289,6 +289,13 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
       <p class="hint">Desmarcado: gera uma lista só, no nome de uma liderança (padrão). Marque quando as fotos juntarem fichas de lideranças diferentes — cada uma vira um PDF, dentro de um ZIP.</p>
     </div>
 
+    <div class="field">
+      <label class="lbl">Ou importar lista já digitada</label>
+      <p class="hint">Pula a leitura por foto. Aceita CSV, Excel (.xlsx) ou Word (.docx com uma tabela), com colunas como Nome, Liderança, Zona, Seção, Telefone, Título e Endereço.</p>
+      <button class="btn btn-ghost" id="b-importar" type="button">Importar arquivo</button>
+      <input type="file" id="in-importar" accept=".csv,.xlsx,.xls,.docx">
+    </div>
+
     <div id="aviso-form"></div>
     <button class="btn btn-primary" id="b-analisar" type="button" disabled>Analisar lista</button>
   </section>
@@ -370,6 +377,8 @@ textarea.msg:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 <!-- Só usadas na exportação em lote: um PDF por liderança dentro de um ZIP. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>
